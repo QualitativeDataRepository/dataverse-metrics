@@ -1,0 +1,190 @@
+---
+title: "Dataverse Metrics Report"
+#author: "Qualitative Data Repository"
+date: "Generated `r Sys.time()`"
+output:
+  pdf_document: 
+    includes:
+      in_header: header.tex
+  html_document: default
+editor_options:
+  chunk_output_type: console
+---
+
+```{r setup, include=FALSE, warning=FALSE}
+knitr::opts_chunk$set(echo = FALSE, warning = FALSE, message = FALSE) 
+opts <- options(knitr.kable.NA = "")
+library(httr)
+library(readr)
+library(tidyr)
+library(dplyr)
+library(ggplot2)
+library(ggfortify)
+
+### Configurable variables
+
+# Custom start and end dates: use YYYY-MM-DD format
+# If these aren't provided, we'll: default to today's date as end date and to the beginning of the year as the start date
+period_begin <- NULL
+period_end <- NULL
+
+# Set tokens and file location settings
+dataverse_host <- "http://data.qdr.syr.edu"
+dataverse_key <- Sys.getenv("DATAVERSE_TOKEN")
+dataverse <- paste0(dataverse_host, "/api/info/metrics")
+doi_link <- paste0(dataverse_host, "/dataset.xhtml?persistentId=")
+
+# Calculate dates: We use YTD if none are given
+if (is.null(period_begin)) {
+  period_begin <- as.Date(paste(as.integer(format(Sys.Date(), "%Y")),
+                              "01-01", sep = "-"))}
+if (is.null(period_end)){
+  period_end <- Sys.Date()
+}
+
+# Dataverse data. Cached locally as rds files
+if (file.exists("deposits.rds")) {
+  deposits <- readRDS("deposits.rds")
+  projects <- readRDS("projects.rds")
+  mdc <- readRDS("mdc.rds")
+} else {
+  # This implements the search API to get all available data for all datasets
+  deposits <- content(GET(paste0(dataverse_host,
+                                 "/api/search/?q=*&type=dataset&per_page=1000"),
+                          config=add_headers("X-Dataverse-Key"=dataverse_key)))
+  deposits <- tibble(deposit=deposits$data$items)
+  deposits <- deposits %>% unnest_wider(deposit)
+  
+  deposits$name <- stringr::str_trunc(deposits$name, 75, "right")
+  deposits$versionState <- recode(deposits$versionState, RELEASED="Published", DRAFT="Unpublished")
+  saveRDS(deposits, "deposits.rds")
+  
+  projects <- content(GET(paste0(dataverse, "/uniquedownloads/monthly")))
+  projects <- bind_rows(projects$data)
+  projects$date <- as.Date(paste0(projects$date, "-01"))
+  saveRDS(projects, "projects.rds")
+  
+  views_total <- content(GET(paste0(dataverse, '/makeDataCount/viewsTotal/monthly')))
+  views_total <- bind_rows(views_total$data)
+  names(views_total) <- c("date", "total")
+  
+  views_unique <- content(GET(paste0(dataverse, '/makeDataCount/viewsUnique/monthly')))
+  views_unique <- bind_rows(views_unique$data)
+  names(views_unique) <- c("date", "unique")
+  
+  downloads_total <- content(GET(paste0(dataverse, '/makeDataCount/downloadsTotal/monthly')))
+  downloads_total <- bind_rows(downloads_total$data)
+  names(downloads_total) <- c("date", "total")
+  
+  downloads_unique <- content(GET(paste0(dataverse, '/makeDataCount/downloadsUnique/monthly')))
+  downloads_unique <- bind_rows(downloads_unique$data)
+  names(downloads_unique) <- c("date", "unique")
+
+  mdc <- list(vt = views_total,
+              vu = views_unique,
+              dt = downloads_total,
+              du = downloads_unique)
+  saveRDS(mdc, "mdc.rds")
+}
+
+```
+
+## Parameters
+
+- Reporting period: `r period_begin` to `r period_end`.
+
+```{r total_projects}
+dataverse_total <- nrow(deposits)
+deposits_published <- deposits %>% filter(versionState == "Published")
+deposits_unpublished <- deposits %>% filter(versionState == "Unpublished")
+deposits_new <- sum(as.Date(deposits$createdAt) < period_end & as.Date(deposits$createdAt) > period_begin)
+published_new <- sum(as.Date(deposits_published$published_at) < period_end & as.Date(deposits_published$published_at) > period_begin)
+```
+
+- There are currently `r dataverse_total` projects. 
+- `r deposits_new` new deposits were initiated between `r period_begin` and `r period_end`.
+- `r published_new` projects were published between `r period_begin` and `r period_end`.
+
+```{r subject}
+deposits %>% group_by(versionState) %>% summarize(n=n()) %>%
+  knitr::kable(caption="Total deposits by publication status", col.names=c("Status", "Deposits"))
+
+deposits_published %>% select(c("subjects")) %>%
+  unnest_longer(subjects) %>% group_by(subjects) %>%
+  summarize(n=n(), pct=round(100*(n()/nrow(deposits_published)), digits=2)) %>%
+  knitr::kable(caption="Published deposits by subject (projects can have multiple subjects)", 
+               col.names=c("Subject", "Projects", "Percentage of projects")) 
+
+deposits_unpublished %>% select(c("subjects")) %>%
+  unnest_longer(subjects) %>% group_by(subjects) %>%
+  summarize(n=n(), pct=round(100*(n()/nrow(deposits_unpublished)), digits=2)) %>%
+  knitr::kable(caption="Draft deposits by subject (projects can have multiple subjects)", 
+               col.names=c("Subject", "Projects", "Percentage of projects")) 
+
+deposits_published %>% filter(as.Date(createdAt) < period_end &
+                      as.Date(createdAt) > period_begin) %>%
+  select(c("subjects")) %>%
+  unnest_longer(subjects) %>% group_by(subjects) %>%
+  summarize(n=n(), pct=round(100*(n()/nrow(filter(deposits_published, as.Date(createdAt) < period_end &
+                      as.Date(createdAt) > period_begin))), digits=2)) %>%
+  knitr::kable(caption=paste("Deposits by subject published between", period_begin,
+                             "and", period_end),
+               col.names=c("Subject", "Projects", "Percentage of projects"))
+
+
+deposits_unpublished %>% filter(as.Date(createdAt) < period_end &
+                      as.Date(createdAt) > period_begin) %>%
+  select(c("subjects")) %>%
+  unnest_longer(subjects) %>% group_by(subjects) %>%
+  summarize(n=n(), pct=round(100*(n()/nrow(filter(deposits_unpublished, as.Date(createdAt) < period_end &
+                      as.Date(createdAt) > period_begin))), digits=2)) %>%
+  knitr::kable(caption=paste("Draf deposits by subject created between", period_begin,
+                             "and", period_end),
+               col.names=c("Subject", "Projects", "Percentage of projects"))
+```
+
+```{r top}
+projects %>% group_by(pid) %>% summarize(sum(count)) %>% 
+  arrange(desc(`sum(count)`)) %>% slice(1:5) %>%
+  mutate(pid = paste0("[", deposits$name[deposits$global_id %in% pid], "](", 
+                      doi_link, pid, ")")) %>%
+  knitr::kable(caption="Top 5 all time downloaded projects",
+             row.names = FALSE, col.names = c("Project", "Downloads"))
+
+projects %>% group_by(pid) %>% filter(date < period_end &
+                      date > period_begin) %>% 
+  summarize(sum(count)) %>% arrange(desc(`sum(count)`)) %>% slice(1:5) %>%
+  mutate(pid = paste0("[", deposits$name[deposits$global_id %in% pid], "](", 
+                      doi_link, pid, ")")) %>%
+  knitr::kable(caption=paste("Top 5 downloaded projects between ", period_begin,
+                             "and", period_end),
+             row.names = FALSE, col.names = c("Project", "Downloads"))
+```
+
+## Make Data Count (MDC)
+
+### Understanding MDC data
+
+MDC reports statistics as "total" and "unique". 
+
+- Unique" views/downloads correspond to the number of unique sessions in which a data project has been viewed/downloaded. Roughly translates to: "X people have viewed/downloaded this project or its files."
+- Total views/downloads correspond to the number of times a project has been viewed/downloaded, including, e.g., multiple counts for multiple views/downloads in the same session or by the same user.
+
+```{r views}
+both <- merge(mdc$vt, mdc$vu, all=TRUE, by="date")
+both_ts <- ts(both[, -1], frequency=12, 
+              start=strsplit(both$date[1], split="-")[[1]])
+autoplot(both_ts, facets = FALSE) + labs(title="MDC Views", color="Statistic") +
+  scale_y_continuous(labels=scales::comma)
+```
+
+
+
+```{r downloads}
+both <- merge(mdc$dt, mdc$du, all=TRUE, by="date")
+both_ts <- ts(both[, -1], frequency=12, 
+              start=strsplit(both$date[1], split="-")[[1]])
+autoplot(both_ts, facets = FALSE) +  labs(title="MDC Downloads", color="Statistic") +
+  scale_y_continuous(labels=scales::comma)
+```
+
