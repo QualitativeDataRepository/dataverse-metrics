@@ -1,0 +1,25 @@
+on: workflow_dispatch
+
+name: Render dataverse-metrics
+
+jobs:
+  render:
+    name: Render metrics-reports
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v2
+      - uses: r-lib/actions/setup-tinytex@v2
+      - uses: r-lib/actions/setup-r@v1
+      - uses: r-lib/actions/setup-pandoc@v1
+      - uses: r-lib/actions/setup-r-dependencies@v2
+      - name: Install extra LaTeX packages
+        run: sudo apt install texlive-latex-recommended
+      - run: mkdir report/
+      - name: Render documents
+        env:
+          DATAVERSE_TOKEN: ${{ secrets.DATAVERSE_TOKEN }}
+        run: Rscript -e 'rmarkdown::render("dataverse_metrics.Rmd", "all", output_dir=Sys.getenv("EXTERNAL_GH_FOLDER"))'
+      - uses: actions/upload-artifact@v3
+        with:
+          name: dataverse-metrics
+          path: report/ # or path/to/artifact
