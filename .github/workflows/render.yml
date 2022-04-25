@@ -4,7 +4,7 @@ name: Render dataverse-metrics
 
 jobs:
   render:
-    name: Render metrics-reports
+    name: Render dataverse-metrics
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v2
@@ -18,7 +18,7 @@ jobs:
       - name: Render documents
         env:
           DATAVERSE_TOKEN: ${{ secrets.DATAVERSE_TOKEN }}
-        run: Rscript -e 'rmarkdown::render("dataverse_metrics.Rmd", "all", output_dir=Sys.getenv("EXTERNAL_GH_FOLDER"))'
+        run: Rscript -e 'rmarkdown::render("dataverse_metrics.Rmd", "all", output_dir="report")'
       - uses: actions/upload-artifact@v3
         with:
           name: dataverse-metrics
