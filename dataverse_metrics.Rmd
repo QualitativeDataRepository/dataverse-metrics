@@ -30,6 +30,7 @@ period_end <- NULL
 
 # Set tokens and file location settings
 dataverse_host <- "http://demo.dataverse.org"
+#dataverse_host <- "http://dataverse.harvard.edu"
 dataverse_key <- Sys.getenv("DATAVERSE_TOKEN")
 dataverse <- paste0(dataverse_host, "/api/info/metrics")
 doi_link <- paste0(dataverse_host, "/dataset.xhtml?persistentId=")
@@ -57,13 +58,15 @@ if (file.exists("deposits.rds")) {
 
   # Do we need to paginate?
   while (deposits$data$start + deposits$data$count_in_response < deposits$data$total_count) {
-      start <- deposits$data$start + deposits$data$count_in_response
-      deposits <- content(GET(paste0(dataverse_host,
-                                     "/api/search/?q=*&type=dataset&per_page=1000",
-                                     "&start=", start),
-                              config=add_headers("X-Dataverse-Key"=dataverse_key)))
-      deposits_tb <- tibble(deposit=deposits$data$items) %>% unnest_wider(deposit) %>% 
-        bind_rows(deposits_tb)
+    Sys.sleep(3) # Be NICE to the API! This can take a while if there's lots of projects
+    start <- deposits$data$start + deposits$data$count_in_response
+    message(paste("at", start, "of", deposits$data$total_count))
+    deposits <- content(GET(paste0(dataverse_host,
+                                   "/api/search/?q=*&type=dataset&per_page=1000",
+                                   "&start=", start),
+                            config=add_headers("X-Dataverse-Key"=dataverse_key)))
+    deposits_tb <- tibble(deposit=deposits$data$items) %>% unnest_wider(deposit) %>% 
+      bind_rows(deposits_tb)
   }
   
   deposits <- deposits_tb
@@ -73,9 +76,9 @@ if (file.exists("deposits.rds")) {
   deposits$versionState <- recode(deposits$versionState, RELEASED="Published", DRAFT="Unpublished")
   saveRDS(deposits, "deposits.rds")
   
-  projects <- content(GET(paste0(dataverse, "/uniquedownloads/monthly")))
+  projects <- content(GET(paste0(dataverse, "/uniquedownloads")))
   projects <- bind_rows(projects$data)
-  projects$date <- as.Date(paste0(projects$date, "-01"))
+  #projects$date <- as.Date(paste0(projects$date, "-01"))
   saveRDS(projects, "projects.rds")
   
   views_total <- content(GET(paste0(dataverse, '/makeDataCount/viewsTotal/monthly')))
@@ -109,10 +112,12 @@ if (file.exists("deposits.rds")) {
 
 ```{r total_projects}
 dataverse_total <- nrow(deposits)
-deposits_published <- deposits %>% filter(versionState == "Published")
-deposits_unpublished <- deposits %>% filter(versionState == "Unpublished")
-deposits_new <- sum(as.Date(deposits$createdAt) < period_end & as.Date(deposits$createdAt) > period_begin)
-published_new <- sum(as.Date(deposits_published$published_at) < period_end & as.Date(deposits_published$published_at) > period_begin)
+
+deposits_new <- deposits %>% filter(as.Date(createdAt) < period_end & as.Date(createdAt) > period_begin) %>%
+  summarize(n=n()) %>% .$n
+
+published_new <- deposits %>% filter(as.Date(published_at) < period_end & as.Date(published_at) > period_begin) %>%
+  summarize(n=n()) %>% .$n
 ```
 
 - There are currently `r dataverse_total` projects. 
@@ -123,38 +128,50 @@ published_new <- sum(as.Date(deposits_published$published_at) < period_end & as.
 deposits %>% group_by(versionState) %>% summarize(n=n()) %>%
   knitr::kable(caption="Total deposits by publication status", col.names=c("Status", "Deposits"))
 
-deposits_published %>% select(c("subjects")) %>%
-  unnest_longer(subjects) %>% group_by(subjects) %>%
-  summarize(n=n(), pct=round(100*(n()/nrow(deposits_published)), digits=2)) %>%
-  knitr::kable(caption="Published deposits by subject (projects can have multiple subjects)", 
-               col.names=c("Subject", "Projects", "Percentage of projects")) 
+deposits_subj_published <- deposits %>% 
+  filter(versionState=="Published") %>% select(c("subjects")) %>%
+  unnest_longer(subjects) %>% group_by(subjects) %>% summarize(published=n())
 
-deposits_unpublished %>% select(c("subjects")) %>%
-  unnest_longer(subjects) %>% group_by(subjects) %>%
-  summarize(n=n(), pct=round(100*(n()/nrow(deposits_unpublished)), digits=2)) %>%
-  knitr::kable(caption="Draft deposits by subject (projects can have multiple subjects)", 
-               col.names=c("Subject", "Projects", "Percentage of projects")) 
+deposits_subj_period_published <- deposits %>% 
+  filter(as.Date(published_at) < period_end & as.Date(published_at) > period_begin & 
+           versionState=="Published") %>%
+  select(c("subjects")) %>% unnest_longer(subjects) %>% group_by(subjects) %>%
+  summarize(n=n())
 
-deposits_published %>% filter(as.Date(createdAt) < period_end &
-                      as.Date(createdAt) > period_begin) %>%
-  select(c("subjects")) %>%
-  unnest_longer(subjects) %>% group_by(subjects) %>%
-  summarize(n=n(), pct=round(100*(n()/nrow(filter(deposits_published, as.Date(createdAt) < period_end &
-                      as.Date(createdAt) > period_begin))), digits=2)) %>%
-  knitr::kable(caption=paste("Deposits by subject published between", period_begin,
-                             "and", period_end),
-               col.names=c("Subject", "Projects", "Percentage of projects"))
+# Any unpublished projects?
+if (any(deposits$versionState=="Unpublished")) {
+  subj_tbl_a <- deposits %>% filter(versionState=="Unpublished") %>% select(c("subjects")) %>%
+    unnest_longer(subjects) %>% group_by(subjects) %>%
+    summarize(unpublished=n()) %>% full_join(deposits_subj_published) %>%
+    knitr::kable(caption="Deposits by subject",
+                 col.names=c("Subject", "Draft", "Published"))
+  
+  if (any(subset(deposits, as.Date(createdAt) < period_end &
+                 as.Date(createdAt) > period_begin)$versionState=="Unpublished")) {
+    subj_tbl_b <- deposits %>% filter(versionState == "Unpublished" & 
+                          as.Date(createdAt) < period_end &
+                          as.Date(createdAt) > period_begin) %>%
+      select(c("subjects")) %>% unnest_longer(subjects) %>% group_by(subjects) %>%
+      summarize(unpublished=n()) %>% full_join(deposits_subj_period_published) %>%
+      knitr::kable(caption=paste("Deposits by subject created between", 
+                                 period_begin,
+                                 "and", period_end),
+                   col.names=c("Subject", "Draft", "Published")) 
+  }  else {
+    subj_tbl_b <- deposits_subj_period_published %>% 
+      knitr::kable(caption=paste("Deposits by subject published between", period_begin,
+                                 "and", period_end),
+                   col.names=c("Subject", "Projects"))#, "Percentage of projects"))
+  }
+} else {
+  subj_tbl_a <- deposits_subj_published %>% 
+        knitr::kable(caption="Deposits by subject",
+                 col.names=c("Subject", "Published"))
+}
 
+subj_tbl_a
 
-deposits_unpublished %>% filter(as.Date(createdAt) < period_end &
-                      as.Date(createdAt) > period_begin) %>%
-  select(c("subjects")) %>%
-  unnest_longer(subjects) %>% group_by(subjects) %>%
-  summarize(n=n(), pct=round(100*(n()/nrow(filter(deposits_unpublished, as.Date(createdAt) < period_end &
-                      as.Date(createdAt) > period_begin))), digits=2)) %>%
-  knitr::kable(caption=paste("Draf deposits by subject created between", period_begin,
-                             "and", period_end),
-               col.names=c("Subject", "Projects", "Percentage of projects"))
+subj_tbl_b
 ```
 
 ```{r top}
@@ -165,14 +182,14 @@ projects %>% group_by(pid) %>% summarize(sum(count)) %>%
   knitr::kable(caption="Top 5 all time downloaded projects",
              row.names = FALSE, col.names = c("Project", "Downloads"))
 
-projects %>% group_by(pid) %>% filter(date < period_end &
-                      date > period_begin) %>% 
-  summarize(sum(count)) %>% arrange(desc(`sum(count)`)) %>% slice(1:5) %>%
-  mutate(pid = paste0("[", deposits$name[deposits$global_id %in% pid], "](", 
-                      doi_link, pid, ")")) %>%
-  knitr::kable(caption=paste("Top 5 downloaded projects between ", period_begin,
-                             "and", period_end),
-             row.names = FALSE, col.names = c("Project", "Downloads"))
+#projects %>% group_by(pid) %>% filter(date < period_end &
+#                      date > period_begin) %>% 
+#  summarize(sum(count)) %>% arrange(desc(`sum(count)`)) %>% slice(1:5) %>%
+#  mutate(pid = paste0("[", deposits$name[deposits$global_id %in% pid], "](", 
+#                      doi_link, pid, ")")) %>%
+#  knitr::kable(caption=paste("Top 5 downloaded projects between ", period_begin,
+#                             "and", period_end),
+#             row.names = FALSE, col.names = c("Project", "Downloads"))
 ```
 
 ## Make Data Count (MDC)
