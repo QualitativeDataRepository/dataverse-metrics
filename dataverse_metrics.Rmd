@@ -128,50 +128,44 @@ published_new <- deposits %>% filter(as.Date(published_at) < period_end & as.Dat
 deposits %>% group_by(versionState) %>% summarize(n=n()) %>%
   knitr::kable(caption="Total deposits by publication status", col.names=c("Status", "Deposits"))
 
-deposits_subj_published <- deposits %>% 
+deposits_subj <- deposits %>% 
   filter(versionState=="Published") %>% select(c("subjects")) %>%
   unnest_longer(subjects) %>% group_by(subjects) %>% summarize(published=n())
 
-deposits_subj_period_published <- deposits %>% 
+deposits_subj <- deposits %>% 
   filter(as.Date(published_at) < period_end & as.Date(published_at) > period_begin & 
            versionState=="Published") %>%
   select(c("subjects")) %>% unnest_longer(subjects) %>% group_by(subjects) %>%
-  summarize(n=n())
+  summarize(period=n()) %>% full_join(deposits_subj)
 
 # Any unpublished projects?
 if (any(deposits$versionState=="Unpublished")) {
-  subj_tbl_a <- deposits %>% filter(versionState=="Unpublished") %>% select(c("subjects")) %>%
+  deposits_subj <- deposits %>% filter(versionState=="Unpublished") %>% select(c("subjects")) %>%
     unnest_longer(subjects) %>% group_by(subjects) %>%
-    summarize(unpublished=n()) %>% full_join(deposits_subj_published) %>%
-    knitr::kable(caption="Deposits by subject",
-                 col.names=c("Subject", "Draft", "Published"))
-  
-  if (any(subset(deposits, as.Date(createdAt) < period_end &
-                 as.Date(createdAt) > period_begin)$versionState=="Unpublished")) {
-    subj_tbl_b <- deposits %>% filter(versionState == "Unpublished" & 
-                          as.Date(createdAt) < period_end &
-                          as.Date(createdAt) > period_begin) %>%
-      select(c("subjects")) %>% unnest_longer(subjects) %>% group_by(subjects) %>%
-      summarize(unpublished=n()) %>% full_join(deposits_subj_period_published) %>%
-      knitr::kable(caption=paste("Deposits by subject created between", 
-                                 period_begin,
-                                 "and", period_end),
-                   col.names=c("Subject", "Draft", "Published")) 
-  }  else {
-    subj_tbl_b <- deposits_subj_period_published %>% 
-      knitr::kable(caption=paste("Deposits by subject published between", period_begin,
-                                 "and", period_end),
-                   col.names=c("Subject", "Projects"))#, "Percentage of projects"))
-  }
+    summarize(unpublished=n()) %>% full_join(deposits_subj)
 } else {
-  subj_tbl_a <- deposits_subj_published %>% 
-        knitr::kable(caption="Deposits by subject",
-                 col.names=c("Subject", "Published"))
+  deposits_subj$unpublished <- 0
 }
 
-subj_tbl_a
+# Any unpublished in the time period specified?
+if (any(subset(deposits, as.Date(createdAt) < period_end &
+               as.Date(createdAt) > period_begin)$versionState=="Unpublished")) {
+  deposits_subj <- deposits %>% filter(versionState == "Unpublished" & 
+                                      as.Date(createdAt) < period_end &
+                                      as.Date(createdAt) > period_begin) %>%
+    select(c("subjects")) %>% unnest_longer(subjects) %>% group_by(subjects) %>%
+    summarize(unpublished_period=n()) %>% full_join(deposits_subj)
+} else {
+  deposits_subj$unpublished_period <- 0
+}
 
-subj_tbl_b
+deposits_subj[, c("subjects", "unpublished_period", 
+                  "unpublished", "period", "published")] %>% 
+  knitr::kable(caption="Deposits by subject",
+               col.names=c("Subject", paste("Unpublished between", period_begin, "and", period_end), 
+                           "Total draft", paste("Published between", period_begin, "and", period_end), 
+                           "Total published"))
+
 ```
 
 ```{r top}
