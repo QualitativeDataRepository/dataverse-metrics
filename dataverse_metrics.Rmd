@@ -196,10 +196,12 @@ MDC reports statistics as "total" and "unique".
 - Total views/downloads correspond to the number of times a project has been viewed/downloaded, including, e.g., multiple counts for multiple views/downloads in the same session or by the same user.
 
 ```{r views}
+# So in these next two sections I format the scraped MDC data as mts
 if (nrow(mdc$vt)!=0) {
   both <- merge(mdc$vt, mdc$vu, all=TRUE, by="date")
   both_ts <- ts(both[, -1], frequency=12, 
                 start=strsplit(both$date[1], split="-")[[1]])
+  
   autoplot(both_ts, facets = FALSE) + labs(title="MDC Views", color="Statistic") +
     scale_y_continuous(labels=scales::comma)
 }
@@ -212,6 +214,7 @@ if (nrow(mdc$dt)!=0) {
   both <- merge(mdc$dt, mdc$du, all=TRUE, by="date")
   both_ts <- ts(both[, -1], frequency=12, 
                 start=strsplit(both$date[1], split="-")[[1]])
+  
   autoplot(both_ts, facets = FALSE) +  labs(title="MDC Downloads", color="Statistic") +
     scale_y_continuous(labels=scales::comma)
 }
