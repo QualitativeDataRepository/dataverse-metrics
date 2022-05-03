@@ -30,6 +30,7 @@ period_end <- NULL
 
 # Set tokens and file location settings
 dataverse_host <- "http://demo.dataverse.org"
+#dataverse_host <- "http://data.qdr.syr.edu"
 #dataverse_host <- "http://dataverse.harvard.edu"
 dataverse_key <- Sys.getenv("DATAVERSE_TOKEN")
 dataverse <- paste0(dataverse_host, "/api/info/metrics")
@@ -47,7 +48,7 @@ if (is.null(period_end)){
 if (file.exists("deposits.rds")) {
   deposits <- readRDS("deposits.rds")
   projects <- readRDS("projects.rds")
-  mdc <- readRDS("mdc.rds")
+  downloads <- readRDS("downloads.rds")
 } else {
   # This implements the search API to get all available data for all datasets
   deposits <- content(GET(paste0(dataverse_host,
@@ -76,33 +77,19 @@ if (file.exists("deposits.rds")) {
   deposits$versionState <- recode(deposits$versionState, RELEASED="Published", DRAFT="Unpublished")
   saveRDS(deposits, "deposits.rds")
   
-  projects <- content(GET(paste0(dataverse, "/uniquedownloads")))
+  downloads <- content(GET(paste0(dataverse, "/downloads/monthly")))
+  downloads <- bind_rows(downloads$data)
+  
+  projects <- content(GET(paste0(dataverse, "/uniquedownloads/monthly")))
   projects <- bind_rows(projects$data)
   #projects$date <- as.Date(paste0(projects$date, "-01"))
   saveRDS(projects, "projects.rds")
   
-  views_total <- content(GET(paste0(dataverse, '/makeDataCount/viewsTotal/monthly')))
-  views_total <- bind_rows(views_total$data)
-  names(views_total) <- c("date", "total")
-  
-  views_unique <- content(GET(paste0(dataverse, '/makeDataCount/viewsUnique/monthly')))
-  views_unique <- bind_rows(views_unique$data)
-  names(views_unique) <- c("date", "unique")
-  
-  downloads_total <- content(GET(paste0(dataverse, '/makeDataCount/downloadsTotal/monthly')))
-  downloads_total <- bind_rows(downloads_total$data)
-  names(downloads_total) <- c("date", "total")
-  
-  downloads_unique <- content(GET(paste0(dataverse, '/makeDataCount/downloadsUnique/monthly')))
-  downloads_unique <- bind_rows(downloads_unique$data)
-  names(downloads_unique) <- c("date", "unique")
+  downloads <- projects %>% group_by(date) %>% summarize(unique=sum(count)) %>%
+    full_join(downloads)
+  saveRDS(downloads, "downloads.rds")
 
-  mdc <- list(vt = views_total,
-              vu = views_unique,
-              dt = downloads_total,
-              du = downloads_unique)
-  saveRDS(mdc, "mdc.rds")
-}
+  }
 
 ```
 
@@ -186,37 +173,18 @@ projects %>% group_by(pid) %>% summarize(sum(count)) %>%
 #             row.names = FALSE, col.names = c("Project", "Downloads"))
 ```
 
-## Make Data Count (MDC)
+## Aggregate data
 
-### Understanding MDC data
-
-MDC reports statistics as "total" and "unique". 
+Dataverse reports statistics as "total" and "unique". 
 
 - Unique" views/downloads correspond to the number of unique sessions in which a data project has been viewed/downloaded. Roughly translates to: "X people have viewed/downloaded this project or its files."
 - Total views/downloads correspond to the number of times a project has been viewed/downloaded, including, e.g., multiple counts for multiple views/downloads in the same session or by the same user.
 
-```{r views}
-# So in these next two sections I format the scraped MDC data as mts
-if (nrow(mdc$vt)!=0) {
-  both <- merge(mdc$vt, mdc$vu, all=TRUE, by="date")
-  both_ts <- ts(both[, -1], frequency=12, 
-                start=strsplit(both$date[1], split="-")[[1]])
-  
-  autoplot(both_ts, facets = FALSE) + labs(title="MDC Views", color="Statistic") +
-    scale_y_continuous(labels=scales::comma)
-}
-```
-
-
-
 ```{r downloads}
-if (nrow(mdc$dt)!=0) {
-  both <- merge(mdc$dt, mdc$du, all=TRUE, by="date")
-  both_ts <- ts(both[, -1], frequency=12, 
-                start=strsplit(both$date[1], split="-")[[1]])
-  
-  autoplot(both_ts, facets = FALSE) +  labs(title="MDC Downloads", color="Statistic") +
-    scale_y_continuous(labels=scales::comma)
-}
+both_ts <- ts(downloads[, -1], frequency=12, 
+              start=strsplit(downloads$date[1], split="-")[[1]])
+
+autoplot(both_ts, facets = FALSE) +  labs(title="Downloads", color="Statistic") +
+  scale_y_continuous(labels=scales::comma)
 ```
 
