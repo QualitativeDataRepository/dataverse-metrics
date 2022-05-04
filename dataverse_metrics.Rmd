@@ -51,7 +51,8 @@ if (is.null(period_end)){
 if (file.exists("deposits.rds")) {
   deposits <- readRDS("deposits.rds")
   projects <- readRDS("projects.rds")
-  downloads <- readRDS("downloads.rds")
+  if (file.exists("downloads.rds")) downloads <- readRDS("downloads.rds")
+  if (file.exists("mdc.rds")) mdc <- readRDS("mdc.rds")
 } else {
   deposits <- deposits_get(dataverse_host)
   saveRDS(deposits, "deposits.rds")
@@ -62,12 +63,13 @@ if (file.exists("deposits.rds")) {
 
   if (mdc_available(dataverse_host)) {
     mdc <- mdc_get(dataverse_host)
+    saveRDS(mdc, "mdc.rds")
   } else {
     downloads <- content(GET(paste0(dataverse, "/downloads/monthly")))
     downloads <- bind_rows(downloads$data)
-    saveRDS(downloads, "downloads.rds")
     downloads <- projects %>% group_by(date) %>% summarize(unique=sum(count)) %>%
       full_join(downloads)
+    saveRDS(downloads, "downloads.rds")
   }
 }
 
