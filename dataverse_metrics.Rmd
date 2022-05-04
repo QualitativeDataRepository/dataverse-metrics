@@ -20,6 +20,8 @@ library(tidyr)
 library(dplyr)
 library(ggplot2)
 library(ggfortify)
+source("R/deposits.R")
+source("R/mdc.R")
 
 ### Configurable variables
 
@@ -29,12 +31,13 @@ period_begin <- NULL
 period_end <- NULL
 
 # Set tokens and file location settings
-dataverse_host <- "http://demo.dataverse.org"
-#dataverse_host <- "http://data.qdr.syr.edu"
-#dataverse_host <- "http://dataverse.harvard.edu"
+dataverse_host <- "data.qdr.syr.edu"
+# Sys.setenv("DATAVERSE_SERVER" = "demo.dataverse.org")
+#dataverse_host <- "dataverse.harvard.edu"
 dataverse_key <- Sys.getenv("DATAVERSE_TOKEN")
-dataverse <- paste0(dataverse_host, "/api/info/metrics")
-doi_link <- paste0(dataverse_host, "/dataset.xhtml?persistentId=")
+
+dataverse <- paste0('http://', dataverse_host, "/api/info/metrics")
+doi_link <- paste0('http://', dataverse_host, "/dataset.xhtml?persistentId=")
 
 # Calculate dates: We use YTD if none are given
 if (is.null(period_begin)) {
@@ -50,46 +53,24 @@ if (file.exists("deposits.rds")) {
   projects <- readRDS("projects.rds")
   downloads <- readRDS("downloads.rds")
 } else {
-  # This implements the search API to get all available data for all datasets
-  deposits <- content(GET(paste0(dataverse_host,
-                                 "/api/search/?q=*&type=dataset&per_page=1000"),
-                          config=add_headers("X-Dataverse-Key"=dataverse_key)))
-
-  deposits_tb <- tibble(deposit=deposits$data$items) %>% unnest_wider(deposit)
-
-  # Do we need to paginate?
-  while (deposits$data$start + deposits$data$count_in_response < deposits$data$total_count) {
-    Sys.sleep(3) # Be NICE to the API! This can take a while if there's lots of projects
-    start <- deposits$data$start + deposits$data$count_in_response
-    message(paste("at", start, "of", deposits$data$total_count))
-    deposits <- content(GET(paste0(dataverse_host,
-                                   "/api/search/?q=*&type=dataset&per_page=1000",
-                                   "&start=", start),
-                            config=add_headers("X-Dataverse-Key"=dataverse_key)))
-    deposits_tb <- tibble(deposit=deposits$data$items) %>% unnest_wider(deposit) %>% 
-      bind_rows(deposits_tb)
-  }
-  
-  deposits <- deposits_tb
-  rm(deposits_tb)
-
-  deposits$name <- stringr::str_trunc(deposits$name, 75, "right")
-  deposits$versionState <- recode(deposits$versionState, RELEASED="Published", DRAFT="Unpublished")
+  deposits <- deposits_get(dataverse_host)
   saveRDS(deposits, "deposits.rds")
-  
-  downloads <- content(GET(paste0(dataverse, "/downloads/monthly")))
-  downloads <- bind_rows(downloads$data)
   
   projects <- content(GET(paste0(dataverse, "/uniquedownloads/monthly")))
   projects <- bind_rows(projects$data)
-  #projects$date <- as.Date(paste0(projects$date, "-01"))
   saveRDS(projects, "projects.rds")
-  
-  downloads <- projects %>% group_by(date) %>% summarize(unique=sum(count)) %>%
-    full_join(downloads)
-  saveRDS(downloads, "downloads.rds")
 
+  if (mdc_available(dataverse_host)) {
+    mdc <- mdc_get(dataverse_host)
+  } else {
+    downloads <- content(GET(paste0(dataverse, "/downloads/monthly")))
+    downloads <- bind_rows(downloads$data)
+    saveRDS(downloads, "downloads.rds")
+    downloads <- projects %>% group_by(date) %>% summarize(unique=sum(count)) %>%
+      full_join(downloads)
   }
+}
+
 
 ```
 
@@ -180,11 +161,16 @@ Dataverse reports statistics as "total" and "unique".
 - Unique" views/downloads correspond to the number of unique sessions in which a data project has been viewed/downloaded. Roughly translates to: "X people have viewed/downloaded this project or its files."
 - Total views/downloads correspond to the number of times a project has been viewed/downloaded, including, e.g., multiple counts for multiple views/downloads in the same session or by the same user.
 
-```{r downloads}
-both_ts <- ts(downloads[, -1], frequency=12, 
-              start=strsplit(downloads$date[1], split="-")[[1]])
+```{r mdc}
+if (exists("mdc")) {
+  stats_ts <- ts(mdc[, -1], frequency=12, start=strsplit(mdc$date[1], split="-")[[1]])
+} else {
+  stats_ts <- ts(downloads[, -1], frequency=12, 
+                start=strsplit(downloads$date[1], split="-")[[1]])
+}
 
-autoplot(both_ts, facets = FALSE) +  labs(title="Downloads", color="Statistic") +
-  scale_y_continuous(labels=scales::comma)
+autoplot(stats_ts, facets = FALSE) +  labs(title="Statistics", color="Statistic") +
+    scale_y_continuous(labels=scales::comma)
+
 ```
 
