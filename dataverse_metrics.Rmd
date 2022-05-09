@@ -40,9 +40,7 @@ if (is.na(period_end)){
 }
 
 # Set tokens and file location settings
-dataverse_host <- "data.qdr.syr.edu"
-# Sys.setenv("DATAVERSE_SERVER" = "demo.dataverse.org")
-#dataverse_host <- "dataverse.harvard.edu"
+dataverse_host <- Sys.getenv("DATAVERSE_SERVER")
 dataverse_key <- Sys.getenv("DATAVERSE_TOKEN")
 
 dataverse <- paste0('http://', dataverse_host, "/api/info/metrics")
