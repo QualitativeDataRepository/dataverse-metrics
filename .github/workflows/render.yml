@@ -1,4 +1,12 @@
-on: workflow_dispatch
+on:
+  workflow_dispatch:
+    inputs:
+      period_begin:
+        description: 'Period beginning date (YYYY-MM-DD)'
+        required: FALSE
+      period_end:
+        description: 'Period ending date (YYYY-MM-DD)'
+        required: FALSE
 
 name: Render dataverse-metrics
 
@@ -18,6 +26,8 @@ jobs:
       - name: Render documents
         env:
           DATAVERSE_TOKEN: ${{ secrets.DATAVERSE_TOKEN }}
+          period_begin: ${{ github.event.inputs.period_begin }}
+          period_end: ${{ github.event.inputs.period_end }}
         run: Rscript -e 'rmarkdown::render("dataverse_metrics.Rmd", "all", output_dir="report")'
       - uses: actions/upload-artifact@v3
         with:

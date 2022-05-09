@@ -26,9 +26,18 @@ source("R/mdc.R")
 ### Configurable variables
 
 # Custom start and end dates: use YYYY-MM-DD format
+# These are specified from the workflow
 # If these aren't provided, we'll: default to today's date as end date and to the beginning of the year as the start date
-period_begin <- NULL
-period_end <- NULL
+period_begin <- as.Date(Sys.getenv("period_begin"))
+period_end <- as.Date(Sys.getenv("period_end"))
+
+# Calculate dates: We use YTD if none are given
+if (is.na(period_begin)) {
+  period_begin <- as.Date(paste(as.integer(format(Sys.Date(), "%Y")),
+                              "01-01", sep = "-"))}
+if (is.na(period_end)){
+  period_end <- Sys.Date()
+}
 
 # Set tokens and file location settings
 dataverse_host <- "data.qdr.syr.edu"
@@ -38,14 +47,6 @@ dataverse_key <- Sys.getenv("DATAVERSE_TOKEN")
 
 dataverse <- paste0('http://', dataverse_host, "/api/info/metrics")
 doi_link <- paste0('http://', dataverse_host, "/dataset.xhtml?persistentId=")
-
-# Calculate dates: We use YTD if none are given
-if (is.null(period_begin)) {
-  period_begin <- as.Date(paste(as.integer(format(Sys.Date(), "%Y")),
-                              "01-01", sep = "-"))}
-if (is.null(period_end)){
-  period_end <- Sys.Date()
-}
 
 # Dataverse data. Cached locally as rds files
 if (file.exists("deposits.rds")) {
