@@ -35,6 +35,14 @@ deposits_get <- function(domain, key=NULL) {
       bind_rows(deposits)
   }
 
+  # Remove duplicates, but remove draft duplicates preferentially
+  dup_doi <- deposits$global_id[duplicated(deposits$global_id)]
+  if (nrow(subset(deposits, global_id %in% dup_doi))!=0) {
+    dups <- deposits %>% filter(global_id %in% dup_doi & versionState=="Published") %>%
+      group_by(global_id) %>% slice_head()
+    deposits <- deposits %>% filter(!global_id %in% dup_doi) %>% full_join(dups)
+  }
+
   deposits$name <- stringr::str_trunc(deposits$name, 75, "right")
   deposits$versionState <- recode(deposits$versionState, RELEASED="Published", DRAFT="Unpublished")
 
