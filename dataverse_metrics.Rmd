@@ -1,6 +1,5 @@
 ---
 title: "Dataverse Metrics Report"
-#author: "Qualitative Data Repository"
 date: "Generated `r Sys.time()`"
 output:
   pdf_document: 
@@ -77,6 +76,7 @@ if (file.exists("deposits.rds")) {
 
 ## Parameters
 
+- Dataverse instance: `r dataverse_host`
 - Reporting period: `r period_begin` to `r period_end`.
 
 ```{r total_projects}
