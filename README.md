@@ -1,4 +1,4 @@
-# dataverse-metrics
+# Automated Dataverse Metrics Reports
 
 This dynamic report provides a comprehensive overview of activity on a Dataverse server.
 
