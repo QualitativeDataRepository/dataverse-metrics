@@ -134,13 +134,22 @@ if (any(subset(deposits, as.Date(createdAt) < period_end &
   deposits_subj$unpublished_period <- 0
 }
 
-# make the tables
-deposits_subj[, c("subjects", "unpublished_period", 
-                  "unpublished", "period", "published")] %>% 
+# exclude unpublished columns if missing dataverse key
+if (dataverse_key=="") {
+  include_columns <- c("subjects", "period", "published")
+  column_names <- c("Subject",
+    paste("Published between", period_begin, "and", period_end),
+    "Total published")
+} else {
+  include_columns <- c("subjects", "unpublished_period",
+                  "unpublished", "period", "published")
+  column_names <- c("Subject", paste("Unpublished between", period_begin, "and", period_end), "Total draft", paste("Published between", period_begin, "and", period_end), "Total published")
+}
+
+# make the table
+deposits_subj[, include_columns] %>%
   knitr::kable(caption="Deposits by subject",
-               col.names=c("Subject", paste("Unpublished between", period_begin, "and", period_end), 
-                           "Total draft", paste("Published between", period_begin, "and", period_end), 
-                           "Total published"))
+               col.names=column_names)
 
 ```
 
