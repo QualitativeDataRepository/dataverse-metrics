@@ -20,7 +20,7 @@ deposits_get <- function(domain, key=NULL) {
     stop(response$message)
   }
 
-  deposits <- tibble(deposit=response$data$items) %>% unnest_wider(deposit)
+  deposits <- tibble(deposit=response$data$items) |> unnest_wider(deposit)
 
   # Do we need to paginate?
   while (response$data$start + response$data$count_in_response < response$data$total_count) {
@@ -31,16 +31,16 @@ deposits_get <- function(domain, key=NULL) {
                                    "/api/search/?q=*&type=dataset&per_page=1000",
                                    "&start=", start),
                             config=add_headers("X-Dataverse-Key"=key)))
-    deposits <- tibble(deposit=deposits$data$items) %>% unnest_wider(deposit) %>%
+    deposits <- tibble(deposit=response$data$items) |> unnest_wider(deposit) |>
       bind_rows(deposits)
   }
 
   # Remove duplicates, but remove draft duplicates preferentially
   dup_doi <- deposits$global_id[duplicated(deposits$global_id)]
   if (nrow(subset(deposits, global_id %in% dup_doi))!=0) {
-    dups <- deposits %>% filter(global_id %in% dup_doi & versionState=="Published") %>%
-      group_by(global_id) %>% slice_head()
-    deposits <- deposits %>% filter(!global_id %in% dup_doi) %>% full_join(dups)
+    dups <- deposits |> filter(global_id %in% dup_doi & versionState=="Published") |>
+      group_by(global_id) |> slice_head()
+    deposits <- deposits |> filter(!global_id %in% dup_doi) |> full_join(dups)
   }
 
   deposits$name <- stringr::str_trunc(deposits$name, 75, "right")
