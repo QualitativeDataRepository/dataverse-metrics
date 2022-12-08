@@ -46,12 +46,13 @@ dataverse <- paste0('http://', dataverse_host, "/api/info/metrics")
 doi_link <- paste0('http://', dataverse_host, "/dataset.xhtml?persistentId=")
 
 # Dataverse data. Cached locally as rds files
+# This way, we don't need to re-scrape for each format (HTML/PDF)
 if (file.exists("deposits.rds")) {
   deposits <- readRDS("deposits.rds")
   projects <- readRDS("projects.rds")
   if (file.exists("downloads.rds")) downloads <- readRDS("downloads.rds")
   if (file.exists("mdc.rds")) mdc <- readRDS("mdc.rds")
-} else {
+} else { # actually scrape
   deposits <- deposits_get(dataverse_host)
   saveRDS(deposits, "deposits.rds")
   
@@ -82,9 +83,11 @@ if (file.exists("deposits.rds")) {
 ```{r total_projects}
 dataverse_total <- nrow(deposits)
 
+# all projects created within specified time frame
 deposits_new <- deposits %>% filter(as.Date(createdAt) < period_end & as.Date(createdAt) > period_begin) %>%
   summarize(n=n()) %>% .$n
 
+# all *published* projects within the specified timeframe
 published_new <- deposits %>% filter(as.Date(published_at) < period_end & as.Date(published_at) > period_begin) %>%
   summarize(n=n()) %>% .$n
 ```
@@ -94,13 +97,16 @@ published_new <- deposits %>% filter(as.Date(published_at) < period_end & as.Dat
 - `r published_new` projects were published between `r period_begin` and `r period_end`.
 
 ```{r subject}
+# all projects by status
 deposits %>% group_by(versionState) %>% summarize(n=n()) %>%
   knitr::kable(caption="Total deposits by publication status", col.names=c("Status", "Deposits"))
 
+# all published projects by subject
 deposits_subj <- deposits %>% 
   filter(versionState=="Published") %>% select(c("subjects")) %>%
   unnest_longer(subjects) %>% group_by(subjects) %>% summarize(published=n())
 
+# published projects by subject within time frame
 deposits_subj <- deposits %>% 
   filter(as.Date(published_at) < period_end & as.Date(published_at) > period_begin & 
            versionState=="Published") %>%
@@ -128,6 +134,7 @@ if (any(subset(deposits, as.Date(createdAt) < period_end &
   deposits_subj$unpublished_period <- 0
 }
 
+# make the tables
 deposits_subj[, c("subjects", "unpublished_period", 
                   "unpublished", "period", "published")] %>% 
   knitr::kable(caption="Deposits by subject",
@@ -145,14 +152,15 @@ projects %>% group_by(pid) %>% summarize(sum(count)) %>%
   knitr::kable(caption="Top 5 all time downloaded projects",
              row.names = FALSE, col.names = c("Project", "Downloads"))
 
-#projects %>% group_by(pid) %>% filter(date < period_end &
-#                      date > period_begin) %>% 
-#  summarize(sum(count)) %>% arrange(desc(`sum(count)`)) %>% slice(1:5) %>%
-#  mutate(pid = paste0("[", deposits$name[deposits$global_id %in% pid], "](", 
-#                      doi_link, pid, ")")) %>%
-#  knitr::kable(caption=paste("Top 5 downloaded projects between ", period_begin,
-#                             "and", period_end),
-#             row.names = FALSE, col.names = c("Project", "Downloads"))
+projects$date <- as.Date(paste0(projects$date, "-01"))
+projects %>% group_by(pid) %>% filter(date < period_end &
+                      date > period_begin) %>%
+  summarize(sum(count)) %>% arrange(desc(`sum(count)`)) %>% slice(1:5) %>%
+  mutate(pid = paste0("[", deposits$name[deposits$global_id %in% pid], "](",
+                      doi_link, pid, ")")) %>%
+  knitr::kable(caption=paste("Top 5 downloaded projects between ", period_begin,
+                             "and", period_end),
+             row.names = FALSE, col.names = c("Project", "Downloads"))
 ```
 
 ## Aggregate data
@@ -163,6 +171,7 @@ Dataverse reports statistics as "total" and "unique".
 - Total views/downloads correspond to the number of times a project has been viewed/downloaded, including, e.g., multiple counts for multiple views/downloads in the same session or by the same user.
 
 ```{r mdc}
+# not all dataverse instances use MDC data (QDR does). In case they don't, we use the regular downloads stats
 if (exists("mdc")) {
   stats_ts <- ts(mdc[, -1], frequency=12, start=strsplit(mdc$date[1], split="-")[[1]])
 } else {
